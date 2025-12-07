@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "holehe"
+version = "1.61"
+description = "holehe allows you to check if the mail is used on different sites like twitter, instagram , snapchat and will retrieve information on sites with the forgotten password function."
+readme = "README.md"
+requires-python = ">=3.7"
+license = { file = "LICENSE.md" }
+authors = [{ name = "megadose", email = "megadose@protonmail.com" }]
+urls = { Homepage = "http://github.com/megadose/holehe" }
+classifiers = [
+    "Programming Language :: Python",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+]
+dependencies = [
+    "beautifulsoup4",
+    "colorama",
+    "httpx",
+    "requests",
+    "termcolor",
+    "trio",
+    "tqdm",
+]
+
+[project.scripts]
+holehe = "holehe.core:main"

@@ -20,6 +20,17 @@ Holehe checks if an email is attached to an account on sites like twitter, insta
 + Runs on [Python 3](https://www.python.org/downloads/release/python-370/).
 ## 🛠️ Installation
 
+### With uv (recommended)
+
+```bash
+# Install the published package as a CLI tool
+uv tool install holehe
+
+# Or work from a cloned checkout using the pyproject-managed dependencies
+uv sync
+uv run holehe test@gmail.com
+```
+
 ### With PyPI
 
 ```pip3 install holehe```
@@ -29,7 +40,7 @@ Holehe checks if an email is attached to an account on sites like twitter, insta
 ```bash
 git clone https://github.com/megadose/holehe.git
 cd holehe/
-python3 setup.py install
+uv pip install .
 ```
 
 ### With Docker
