@@ -119,6 +119,14 @@ class AmazonUI:
         self.progress.grid(row=6, column=0, columnspan=2, sticky="ew", **padding)
 
         ttk.Label(main_frame, textvariable=self.status_var).grid(row=7, column=0, columnspan=2, sticky="w", **padding)
+        ttk.Label(
+            main_frame,
+            text="平台抽成高，后续合作可添加微信15637899910。请不要在群里说，如有意向请直接添加微信",
+            foreground="gray",
+            font=("TkDefaultFont", 8),
+            wraplength=400,
+            justify="left",
+        ).grid(row=8, column=0, columnspan=2, sticky="w", padx=12, pady=(0, 8))
 
         main_frame.columnconfigure(1, weight=1)
 
