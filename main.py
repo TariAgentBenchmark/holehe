@@ -95,6 +95,7 @@ class AmazonUI:
         self.timeout_var = tk.StringVar(value="10")
         self.concurrency_var = tk.StringVar(value="5")
         self.file_path = tk.StringVar(value="未选择文件")
+        self.save_path = tk.StringVar(value="未选择输出")
         self.last_batch_results = []
 
         self._build_layout()
@@ -146,11 +147,16 @@ class AmazonUI:
         ttk.Button(file_frame, text="选择批量文件", command=self.select_file).grid(row=0, column=0, sticky="w")
         ttk.Label(file_frame, textvariable=self.file_path, width=45).grid(row=0, column=1, sticky="w", padx=8)
 
+        output_frame = ttk.Frame(batch_frame)
+        output_frame.grid(row=3, column=0, columnspan=2, sticky="ew", **padding)
+        ttk.Button(output_frame, text="选择输出文件", command=self.select_output).grid(row=0, column=0, sticky="w")
+        ttk.Label(output_frame, textvariable=self.save_path, width=45).grid(row=0, column=1, sticky="w", padx=8)
+
         self.batch_button = ttk.Button(batch_frame, text="运行批量检测", command=self.start_batch)
-        self.batch_button.grid(row=3, column=0, columnspan=2, sticky="ew", **padding)
+        self.batch_button.grid(row=4, column=0, columnspan=2, sticky="ew", **padding)
 
         self.progress = ttk.Progressbar(batch_frame, mode="determinate")
-        self.progress.grid(row=4, column=0, columnspan=2, sticky="ew", **padding)
+        self.progress.grid(row=5, column=0, columnspan=2, sticky="ew", **padding)
 
         self.save_button = ttk.Button(
             batch_frame,
@@ -158,12 +164,12 @@ class AmazonUI:
             command=self.save_batch_excel,
             state="disabled",
         )
-        self.save_button.grid(row=5, column=0, columnspan=2, sticky="ew", **padding)
+        self.save_button.grid(row=6, column=0, columnspan=2, sticky="ew", **padding)
 
         self.status_var_batch = tk.StringVar(value="就绪")
         self.batch_result_box = tk.Text(batch_frame, width=60, height=10, state="disabled")
-        self.batch_result_box.grid(row=6, column=0, columnspan=2, sticky="nsew", **padding)
-        ttk.Label(batch_frame, textvariable=self.status_var_batch).grid(row=7, column=0, columnspan=2, sticky="w", **padding)
+        self.batch_result_box.grid(row=7, column=0, columnspan=2, sticky="nsew", **padding)
+        ttk.Label(batch_frame, textvariable=self.status_var_batch).grid(row=8, column=0, columnspan=2, sticky="w", **padding)
 
         ttk.Label(
             self.root,
@@ -175,7 +181,7 @@ class AmazonUI:
         ).grid(row=1, column=0, columnspan=2, sticky="w", padx=12, pady=(0, 8))
 
         batch_frame.columnconfigure(1, weight=1)
-        batch_frame.rowconfigure(6, weight=1)
+        batch_frame.rowconfigure(7, weight=1)
         single_frame.rowconfigure(3, weight=1)
 
     def start_lookup(self):
@@ -233,6 +239,15 @@ class AmazonUI:
         )
         if path:
             self.file_path.set(path)
+
+    def select_output(self):
+        path = filedialog.asksaveasfilename(
+            defaultextension=".xlsx",
+            filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")],
+            title="选择输出文件",
+        )
+        if path:
+            self.save_path.set(path)
 
     def start_batch(self):
         path = self.file_path.get()
@@ -295,6 +310,8 @@ class AmazonUI:
         self.batch_button.state(["!disabled"])
         if results:
             self.save_button.state(["!disabled"])
+            if self.save_path.get() and self.save_path.get() != "未选择输出":
+                self._save_results(self.save_path.get(), show_message=True)
 
     def _parse_pairs(self, path: str):
         pairs = []
@@ -320,14 +337,21 @@ class AmazonUI:
             messagebox.showinfo("无数据", "暂无可保存的批量结果。")
             return
 
-        path = filedialog.asksaveasfilename(
-            defaultextension=".xlsx",
-            filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")],
-            title="保存批量结果",
-        )
-        if not path:
-            return
+        if self.save_path.get() and self.save_path.get() != "未选择输出":
+            path = self.save_path.get()
+        else:
+            path = filedialog.asksaveasfilename(
+                defaultextension=".xlsx",
+                filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")],
+                title="保存批量结果",
+            )
+            if not path:
+                return
+            self.save_path.set(path)
 
+        self._save_results(path, show_message=True)
+
+    def _save_results(self, path: str, show_message: bool):
         try:
             wb = Workbook()
             ws = wb.active
@@ -358,7 +382,8 @@ class AmazonUI:
                     ]
                 )
             wb.save(path)
-            messagebox.showinfo("已保存", f"结果已保存到 {path}")
+            if show_message:
+                messagebox.showinfo("已保存", f"结果已保存到 {path}")
         except Exception as exc:
             messagebox.showerror("保存错误", str(exc))
 
