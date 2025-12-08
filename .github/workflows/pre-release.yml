@@ -9,6 +9,8 @@ on:
 jobs:
   build-windows:
     runs-on: windows-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout
@@ -33,13 +35,36 @@ jobs:
           mkdir artifacts
           copy dist\holehe-amazon-ui.exe artifacts\holehe-amazon-ui.exe
 
-      - name: Publish pre-release (overwrite)
+      - name: Delete existing prerelease (if any)
+        uses: actions/github-script@v7
+        env:
+          TAG_NAME: prerelease
+        with:
+          script: |
+            const tag = process.env.TAG_NAME;
+            const { owner, repo } = context.repo;
+            const releases = await github.repos.listReleases({ owner, repo });
+            const existing = releases.data.find(r => r.tag_name === tag);
+            if (existing) {
+              core.info(`Deleting existing release id=${existing.id} tag=${tag}`);
+              await github.repos.deleteRelease({ owner, repo, release_id: existing.id });
+            } else {
+              core.info(`No existing release with tag ${tag}`);
+            }
+            // Delete tag ref if present so new release can retarget latest commit
+            try {
+              await github.git.deleteRef({ owner, repo, ref: `tags/${tag}` });
+              core.info(`Deleted tag refs/tags/${tag}`);
+            } catch (error) {
+              core.info(`Tag refs/tags/${tag} not found or already removed`);
+            }
+
+      - name: Publish pre-release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: prerelease
           name: Pre-release
           prerelease: true
-          overwrite: true
           files: artifacts/holehe-amazon-ui.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
