@@ -46,25 +46,25 @@ async def run_batch_lookup(pairs, timeout: int, progress_callback=None):
 
 def format_result(email: str, result: dict) -> str:
     if result is None:
-        return f"{email}\nStatus: no response received."
+        return f"{email}\n状态：未收到响应。"
 
     if result.get("rateLimit"):
-        return f"{email}\nStatus: rate limited or request failed for {result.get('domain', 'amazon.com')}."
+        return f"{email}\n状态：{result.get('domain', 'amazon.com')} 请求受限或失败。"
 
     exists = result.get("exists")
-    status = "Account exists" if exists else "No account found"
+    status = "账号存在" if exists else "未找到账号"
     lines = [
-        f"Email: {email}",
-        f"Domain: {result.get('domain', 'amazon.com')}",
-        f"Status: {status}",
+        f"邮箱：{email}",
+        f"站点：{result.get('domain', 'amazon.com')}",
+        f"状态：{status}",
     ]
 
     if result.get("emailrecovery"):
-        lines.append(f"Recovery email: {result['emailrecovery']}")
+        lines.append(f"找回邮箱：{result['emailrecovery']}")
     if result.get("phoneNumber"):
-        lines.append(f"Recovery phone: {result['phoneNumber']}")
+        lines.append(f"找回电话：{result['phoneNumber']}")
     if result.get("others"):
-        lines.append(f"Other: {result['others']}")
+        lines.append(f"其他信息：{result['others']}")
 
     return "\n".join(lines)
 
@@ -77,12 +77,12 @@ def format_batch_result(email: str, password: str, result: dict) -> str:
 class AmazonUI:
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title("Holehe AWS/Amazon Checker")
+        self.root.title("Holehe 亚马逊邮箱检测")
         self.root.resizable(False, False)
 
         self.email_var = tk.StringVar()
         self.timeout_var = tk.StringVar(value="10")
-        self.file_path = tk.StringVar(value="No file selected")
+        self.file_path = tk.StringVar(value="未选择文件")
         self.last_batch_results = []
 
         self._build_layout()
@@ -93,28 +93,28 @@ class AmazonUI:
         main_frame = ttk.Frame(self.root)
         main_frame.grid(row=0, column=0, sticky="nsew")
 
-        ttk.Label(main_frame, text="Target email").grid(row=0, column=0, sticky="w", **padding)
+        ttk.Label(main_frame, text="目标邮箱").grid(row=0, column=0, sticky="w", **padding)
         email_entry = ttk.Entry(main_frame, textvariable=self.email_var, width=32)
         email_entry.grid(row=0, column=1, sticky="ew", **padding)
         email_entry.focus()
 
-        ttk.Label(main_frame, text="Timeout (s)").grid(row=1, column=0, sticky="w", **padding)
+        ttk.Label(main_frame, text="超时时间（秒）").grid(row=1, column=0, sticky="w", **padding)
         timeout_entry = ttk.Entry(main_frame, textvariable=self.timeout_var, width=8)
         timeout_entry.grid(row=1, column=1, sticky="w", **padding)
 
-        self.status_var = tk.StringVar(value="Ready.")
+        self.status_var = tk.StringVar(value="就绪")
         self.result_box = tk.Text(main_frame, width=60, height=10, state="disabled")
         self.result_box.grid(row=3, column=0, columnspan=2, sticky="nsew", **padding)
 
-        self.run_button = ttk.Button(main_frame, text="Check Amazon", command=self.start_lookup)
+        self.run_button = ttk.Button(main_frame, text="检测单个邮箱", command=self.start_lookup)
         self.run_button.grid(row=2, column=0, columnspan=2, sticky="ew", **padding)
 
         file_frame = ttk.Frame(main_frame)
         file_frame.grid(row=4, column=0, columnspan=2, sticky="ew", **padding)
-        ttk.Button(file_frame, text="Select batch file", command=self.select_file).grid(row=0, column=0, sticky="w")
+        ttk.Button(file_frame, text="选择批量文件", command=self.select_file).grid(row=0, column=0, sticky="w")
         ttk.Label(file_frame, textvariable=self.file_path, width=45).grid(row=0, column=1, sticky="w", padx=8)
 
-        self.batch_button = ttk.Button(main_frame, text="Run batch", command=self.start_batch)
+        self.batch_button = ttk.Button(main_frame, text="运行批量检测", command=self.start_batch)
         self.batch_button.grid(row=5, column=0, columnspan=2, sticky="ew", **padding)
 
         self.progress = ttk.Progressbar(main_frame, mode="determinate")
@@ -122,7 +122,7 @@ class AmazonUI:
 
         self.save_button = ttk.Button(
             main_frame,
-            text="Save batch to Excel",
+            text="保存批量结果为 Excel",
             command=self.save_batch_excel,
             state="disabled",
         )
@@ -143,21 +143,21 @@ class AmazonUI:
     def start_lookup(self):
         email = self.email_var.get().strip()
         if not email:
-            messagebox.showerror("Validation error", "Please enter an email address.")
+            messagebox.showerror("输入错误", "请输入邮箱地址。")
             return
         if not is_email(email):
-            messagebox.showerror("Validation error", "Please enter a valid email address.")
+            messagebox.showerror("输入错误", "请输入有效的邮箱地址。")
             return
 
         try:
             timeout = int(self.timeout_var.get())
         except ValueError:
-            messagebox.showerror("Validation error", "Timeout must be an integer (seconds).")
+            messagebox.showerror("输入错误", "超时时间必须是整数（秒）。")
             return
 
         self.run_button.state(["disabled"])
-        self.status_var.set("Checking Amazon...")
-        self._write_result("Running lookup...")
+        self.status_var.set("检测中...")
+        self._write_result("正在查询...")
 
         thread = threading.Thread(
             target=self._lookup_worker, args=(email, timeout), daemon=True
@@ -174,12 +174,12 @@ class AmazonUI:
 
     def _on_result(self, formatted: str):
         self._write_result(formatted)
-        self.status_var.set("Done.")
+        self.status_var.set("完成")
         self.run_button.state(["!disabled"])
 
     def _on_error(self, exc: Exception):
-        messagebox.showerror("Lookup error", str(exc))
-        self.status_var.set("Error.")
+        messagebox.showerror("检测错误", str(exc))
+        self.status_var.set("出错")
         self.run_button.state(["!disabled"])
 
     def _write_result(self, text: str):
@@ -190,7 +190,7 @@ class AmazonUI:
 
     def select_file(self):
         path = filedialog.askopenfilename(
-            title="Select txt file",
+            title="选择 txt 文件",
             filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
         )
         if path:
@@ -198,27 +198,27 @@ class AmazonUI:
 
     def start_batch(self):
         path = self.file_path.get()
-        if not path or path == "No file selected":
-            messagebox.showerror("Validation error", "Please select a txt file.")
+        if not path or path == "未选择文件":
+            messagebox.showerror("输入错误", "请选择 txt 文件。")
             return
 
         pairs = self._parse_pairs(path)
         if not pairs:
-            messagebox.showerror("Validation error", "No valid lines found (expected email:password).")
+            messagebox.showerror("输入错误", "未找到有效行（格式应为 email:password）。")
             return
 
         try:
             timeout = int(self.timeout_var.get())
         except ValueError:
-            messagebox.showerror("Validation error", "Timeout must be an integer (seconds).")
+            messagebox.showerror("输入错误", "超时时间必须是整数（秒）。")
             return
 
         self.run_button.state(["disabled"])
         self.batch_button.state(["disabled"])
         self.save_button.state(["disabled"])
-        self.status_var.set(f"Running batch ({len(pairs)} entries)...")
+        self.status_var.set(f"批量运行中（共 {len(pairs)} 条）...")
         self.progress.configure(value=0, maximum=len(pairs))
-        self._write_result("Batch started...")
+        self._write_result("批量任务启动...")
 
         thread = threading.Thread(
             target=self._batch_worker, args=(pairs, timeout), daemon=True
@@ -239,12 +239,12 @@ class AmazonUI:
 
     def update_progress(self, done: int, total: int):
         self.progress.configure(value=done, maximum=total)
-        self.status_var.set(f"Processed {done}/{total}")
+        self.status_var.set(f"已处理 {done}/{total}")
 
     def _on_batch_result(self, results, text: str):
         self.last_batch_results = results
         self._write_result(text)
-        self.status_var.set("Batch complete.")
+        self.status_var.set("批量完成")
         self.run_button.state(["!disabled"])
         self.batch_button.state(["!disabled"])
         if results:
@@ -265,19 +265,19 @@ class AmazonUI:
                         continue
                     pairs.append((email, password))
         except Exception as exc:
-            messagebox.showerror("File error", str(exc))
+            messagebox.showerror("文件错误", str(exc))
             return []
         return pairs
 
     def save_batch_excel(self):
         if not self.last_batch_results:
-            messagebox.showinfo("No data", "No batch results to save.")
+            messagebox.showinfo("无数据", "暂无可保存的批量结果。")
             return
 
         path = filedialog.asksaveasfilename(
             defaultextension=".xlsx",
             filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")],
-            title="Save batch results",
+            title="保存批量结果",
         )
         if not path:
             return
@@ -285,17 +285,17 @@ class AmazonUI:
         try:
             wb = Workbook()
             ws = wb.active
-            ws.title = "Amazon Results"
+            ws.title = "亚马逊结果"
             ws.append(
                 [
-                    "Email",
-                    "Password",
-                    "Domain",
-                    "Exists",
-                    "RateLimited",
-                    "RecoveryEmail",
-                    "RecoveryPhone",
-                    "Others",
+                    "邮箱",
+                    "密码",
+                    "站点",
+                    "存在",
+                    "受限",
+                    "找回邮箱",
+                    "找回电话",
+                    "其他",
                 ]
             )
             for email, password, result in self.last_batch_results:
@@ -312,9 +312,9 @@ class AmazonUI:
                     ]
                 )
             wb.save(path)
-            messagebox.showinfo("Saved", f"Results saved to {path}")
+            messagebox.showinfo("已保存", f"结果已保存到 {path}")
         except Exception as exc:
-            messagebox.showerror("Save error", str(exc))
+            messagebox.showerror("保存错误", str(exc))
 
 
 def main():
