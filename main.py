@@ -4,6 +4,7 @@ from tkinter import filedialog, messagebox, ttk
 
 import httpx
 import trio
+from openpyxl import Workbook
 
 from holehe.core import is_email
 from holehe.modules.shopping.amazon import amazon
@@ -82,6 +83,7 @@ class AmazonUI:
         self.email_var = tk.StringVar()
         self.timeout_var = tk.StringVar(value="10")
         self.file_path = tk.StringVar(value="No file selected")
+        self.last_batch_results = []
 
         self._build_layout()
 
@@ -118,7 +120,15 @@ class AmazonUI:
         self.progress = ttk.Progressbar(main_frame, mode="determinate")
         self.progress.grid(row=6, column=0, columnspan=2, sticky="ew", **padding)
 
-        ttk.Label(main_frame, textvariable=self.status_var).grid(row=7, column=0, columnspan=2, sticky="w", **padding)
+        self.save_button = ttk.Button(
+            main_frame,
+            text="Save batch to Excel",
+            command=self.save_batch_excel,
+            state="disabled",
+        )
+        self.save_button.grid(row=7, column=0, columnspan=2, sticky="ew", **padding)
+
+        ttk.Label(main_frame, textvariable=self.status_var).grid(row=8, column=0, columnspan=2, sticky="w", **padding)
         ttk.Label(
             main_frame,
             text="平台抽成高，后续合作可添加微信15637899910。请不要在群里说，如有意向请直接添加微信",
@@ -126,7 +136,7 @@ class AmazonUI:
             font=("TkDefaultFont", 8),
             wraplength=400,
             justify="left",
-        ).grid(row=8, column=0, columnspan=2, sticky="w", padx=12, pady=(0, 8))
+        ).grid(row=9, column=0, columnspan=2, sticky="w", padx=12, pady=(0, 8))
 
         main_frame.columnconfigure(1, weight=1)
 
@@ -205,6 +215,7 @@ class AmazonUI:
 
         self.run_button.state(["disabled"])
         self.batch_button.state(["disabled"])
+        self.save_button.state(["disabled"])
         self.status_var.set(f"Running batch ({len(pairs)} entries)...")
         self.progress.configure(value=0, maximum=len(pairs))
         self._write_result("Batch started...")
@@ -222,7 +233,7 @@ class AmazonUI:
             results = trio.run(run_batch_lookup, pairs, timeout, progress_cb)
             formatted_lines = [format_batch_result(email, password, result) for email, password, result in results]
             formatted = "\n\n".join(formatted_lines)
-            self.root.after(0, self._on_batch_result, formatted)
+            self.root.after(0, self._on_batch_result, results, formatted)
         except Exception as exc:
             self.root.after(0, self._on_error, exc)
 
@@ -230,11 +241,14 @@ class AmazonUI:
         self.progress.configure(value=done, maximum=total)
         self.status_var.set(f"Processed {done}/{total}")
 
-    def _on_batch_result(self, text: str):
+    def _on_batch_result(self, results, text: str):
+        self.last_batch_results = results
         self._write_result(text)
         self.status_var.set("Batch complete.")
         self.run_button.state(["!disabled"])
         self.batch_button.state(["!disabled"])
+        if results:
+            self.save_button.state(["!disabled"])
 
     def _parse_pairs(self, path: str):
         pairs = []
@@ -254,6 +268,53 @@ class AmazonUI:
             messagebox.showerror("File error", str(exc))
             return []
         return pairs
+
+    def save_batch_excel(self):
+        if not self.last_batch_results:
+            messagebox.showinfo("No data", "No batch results to save.")
+            return
+
+        path = filedialog.asksaveasfilename(
+            defaultextension=".xlsx",
+            filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")],
+            title="Save batch results",
+        )
+        if not path:
+            return
+
+        try:
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "Amazon Results"
+            ws.append(
+                [
+                    "Email",
+                    "Password",
+                    "Domain",
+                    "Exists",
+                    "RateLimited",
+                    "RecoveryEmail",
+                    "RecoveryPhone",
+                    "Others",
+                ]
+            )
+            for email, password, result in self.last_batch_results:
+                ws.append(
+                    [
+                        email,
+                        password,
+                        result.get("domain") if result else "",
+                        result.get("exists") if result else "",
+                        result.get("rateLimit") if result else "",
+                        result.get("emailrecovery") if result else "",
+                        result.get("phoneNumber") if result else "",
+                        result.get("others") if result else "",
+                    ]
+                )
+            wb.save(path)
+            messagebox.showinfo("Saved", f"Results saved to {path}")
+        except Exception as exc:
+            messagebox.showerror("Save error", str(exc))
 
 
 def main():

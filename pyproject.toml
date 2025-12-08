@@ -19,6 +19,7 @@ dependencies = [
     "beautifulsoup4",
     "colorama",
     "httpx",
+    "openpyxl",
     "requests",
     "termcolor",
     "trio",
