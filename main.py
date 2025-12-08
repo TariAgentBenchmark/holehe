@@ -17,11 +17,13 @@ async def run_amazon_lookup(email: str, timeout: int):
         await amazon(email, client, out)
     return out[0] if out else None
 
-async def run_batch_lookup(pairs, timeout: int, progress_callback=None):
-    """Run multiple Amazon lookups sequentially, sharing one client."""
-    results = []
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        for idx, (email, password) in enumerate(pairs, start=1):
+async def run_batch_lookup(pairs, timeout: int, concurrency: int, progress_callback=None):
+    """Run multiple Amazon lookups with limited concurrency, preserving order."""
+    results = [None] * len(pairs)
+    done = 0
+
+    async def worker(idx, email, password, client, limiter):
+        async with limiter:
             out = []
             try:
                 await amazon(email, client, out)
@@ -38,9 +40,18 @@ async def run_batch_lookup(pairs, timeout: int, progress_callback=None):
                     }
                 )
             result = out[0] if out else None
-            results.append((email, password, result))
+            results[idx] = (email, password, result)
             if progress_callback:
-                progress_callback(idx, len(pairs))
+                nonlocal done
+                done += 1
+                progress_callback(done, len(pairs))
+
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        limiter = trio.CapacityLimiter(max(1, concurrency))
+        async with trio.open_nursery() as nursery:
+            for idx, (email, password) in enumerate(pairs):
+                nursery.start_soon(worker, idx, email, password, client, limiter)
+
     return results
 
 
@@ -82,6 +93,7 @@ class AmazonUI:
 
         self.email_var = tk.StringVar()
         self.timeout_var = tk.StringVar(value="10")
+        self.concurrency_var = tk.StringVar(value="5")
         self.file_path = tk.StringVar(value="未选择文件")
         self.last_batch_results = []
 
@@ -90,55 +102,81 @@ class AmazonUI:
     def _build_layout(self):
         padding = {"padx": 12, "pady": 8}
 
-        main_frame = ttk.Frame(self.root)
-        main_frame.grid(row=0, column=0, sticky="nsew")
+        notebook = ttk.Notebook(self.root)
+        notebook.grid(row=0, column=0, sticky="nsew")
 
-        ttk.Label(main_frame, text="目标邮箱").grid(row=0, column=0, sticky="w", **padding)
-        email_entry = ttk.Entry(main_frame, textvariable=self.email_var, width=32)
+        # 单条检测 tab
+        single_frame = ttk.Frame(notebook)
+        notebook.add(single_frame, text="单条检测")
+
+        ttk.Label(single_frame, text="目标邮箱").grid(row=0, column=0, sticky="w", **padding)
+        email_entry = ttk.Entry(single_frame, textvariable=self.email_var, width=32)
         email_entry.grid(row=0, column=1, sticky="ew", **padding)
         email_entry.focus()
 
-        ttk.Label(main_frame, text="超时时间（秒）").grid(row=1, column=0, sticky="w", **padding)
-        timeout_entry = ttk.Entry(main_frame, textvariable=self.timeout_var, width=8)
-        timeout_entry.grid(row=1, column=1, sticky="w", **padding)
+        ttk.Label(single_frame, text="超时时间（秒）").grid(row=1, column=0, sticky="w", **padding)
+        timeout_entry_single = ttk.Entry(single_frame, textvariable=self.timeout_var, width=8)
+        timeout_entry_single.grid(row=1, column=1, sticky="w", **padding)
 
-        self.status_var = tk.StringVar(value="就绪")
-        self.result_box = tk.Text(main_frame, width=60, height=10, state="disabled")
-        self.result_box.grid(row=3, column=0, columnspan=2, sticky="nsew", **padding)
+        self.status_var_single = tk.StringVar(value="就绪")
+        self.single_result_box = tk.Text(single_frame, width=60, height=12, state="disabled")
+        self.single_result_box.grid(row=3, column=0, columnspan=2, sticky="nsew", **padding)
 
-        self.run_button = ttk.Button(main_frame, text="检测单个邮箱", command=self.start_lookup)
+        self.run_button = ttk.Button(single_frame, text="检测单个邮箱", command=self.start_lookup)
         self.run_button.grid(row=2, column=0, columnspan=2, sticky="ew", **padding)
 
-        file_frame = ttk.Frame(main_frame)
-        file_frame.grid(row=4, column=0, columnspan=2, sticky="ew", **padding)
+        ttk.Label(single_frame, textvariable=self.status_var_single).grid(row=4, column=0, columnspan=2, sticky="w", **padding)
+
+        single_frame.columnconfigure(1, weight=1)
+
+        # 批量检测 tab
+        batch_frame = ttk.Frame(notebook)
+        notebook.add(batch_frame, text="批量检测")
+
+        ttk.Label(batch_frame, text="超时时间（秒）").grid(row=0, column=0, sticky="w", **padding)
+        timeout_entry_batch = ttk.Entry(batch_frame, textvariable=self.timeout_var, width=8)
+        timeout_entry_batch.grid(row=0, column=1, sticky="w", **padding)
+
+        ttk.Label(batch_frame, text="并发数").grid(row=1, column=0, sticky="w", **padding)
+        concurrency_entry = ttk.Entry(batch_frame, textvariable=self.concurrency_var, width=8)
+        concurrency_entry.grid(row=1, column=1, sticky="w", **padding)
+
+        file_frame = ttk.Frame(batch_frame)
+        file_frame.grid(row=2, column=0, columnspan=2, sticky="ew", **padding)
         ttk.Button(file_frame, text="选择批量文件", command=self.select_file).grid(row=0, column=0, sticky="w")
         ttk.Label(file_frame, textvariable=self.file_path, width=45).grid(row=0, column=1, sticky="w", padx=8)
 
-        self.batch_button = ttk.Button(main_frame, text="运行批量检测", command=self.start_batch)
-        self.batch_button.grid(row=5, column=0, columnspan=2, sticky="ew", **padding)
+        self.batch_button = ttk.Button(batch_frame, text="运行批量检测", command=self.start_batch)
+        self.batch_button.grid(row=3, column=0, columnspan=2, sticky="ew", **padding)
 
-        self.progress = ttk.Progressbar(main_frame, mode="determinate")
-        self.progress.grid(row=6, column=0, columnspan=2, sticky="ew", **padding)
+        self.progress = ttk.Progressbar(batch_frame, mode="determinate")
+        self.progress.grid(row=4, column=0, columnspan=2, sticky="ew", **padding)
 
         self.save_button = ttk.Button(
-            main_frame,
+            batch_frame,
             text="保存批量结果为 Excel",
             command=self.save_batch_excel,
             state="disabled",
         )
-        self.save_button.grid(row=7, column=0, columnspan=2, sticky="ew", **padding)
+        self.save_button.grid(row=5, column=0, columnspan=2, sticky="ew", **padding)
 
-        ttk.Label(main_frame, textvariable=self.status_var).grid(row=8, column=0, columnspan=2, sticky="w", **padding)
+        self.status_var_batch = tk.StringVar(value="就绪")
+        self.batch_result_box = tk.Text(batch_frame, width=60, height=10, state="disabled")
+        self.batch_result_box.grid(row=6, column=0, columnspan=2, sticky="nsew", **padding)
+        ttk.Label(batch_frame, textvariable=self.status_var_batch).grid(row=7, column=0, columnspan=2, sticky="w", **padding)
+
         ttk.Label(
-            main_frame,
+            self.root,
             text="平台抽成高，后续合作可添加微信15637899910。请不要在群里说，如有意向请直接添加微信",
             foreground="gray",
-            font=("TkDefaultFont", 8),
+            font=("TkDefaultFont", 10),
             wraplength=400,
             justify="left",
-        ).grid(row=9, column=0, columnspan=2, sticky="w", padx=12, pady=(0, 8))
+        ).grid(row=1, column=0, columnspan=2, sticky="w", padx=12, pady=(0, 8))
 
-        main_frame.columnconfigure(1, weight=1)
+        batch_frame.columnconfigure(1, weight=1)
+        batch_frame.rowconfigure(6, weight=1)
+        single_frame.rowconfigure(3, weight=1)
 
     def start_lookup(self):
         email = self.email_var.get().strip()
@@ -156,8 +194,8 @@ class AmazonUI:
             return
 
         self.run_button.state(["disabled"])
-        self.status_var.set("检测中...")
-        self._write_result("正在查询...")
+        self.status_var_single.set("检测中...")
+        self._write_result("正在查询...", self.single_result_box)
 
         thread = threading.Thread(
             target=self._lookup_worker, args=(email, timeout), daemon=True
@@ -173,20 +211,20 @@ class AmazonUI:
             self.root.after(0, self._on_error, exc)
 
     def _on_result(self, formatted: str):
-        self._write_result(formatted)
-        self.status_var.set("完成")
+        self._write_result(formatted, self.single_result_box)
+        self.status_var_single.set("完成")
         self.run_button.state(["!disabled"])
 
     def _on_error(self, exc: Exception):
         messagebox.showerror("检测错误", str(exc))
-        self.status_var.set("出错")
+        self.status_var_single.set("出错")
         self.run_button.state(["!disabled"])
 
-    def _write_result(self, text: str):
-        self.result_box.configure(state="normal")
-        self.result_box.delete("1.0", tk.END)
-        self.result_box.insert(tk.END, text)
-        self.result_box.configure(state="disabled")
+    def _write_result(self, text: str, box: tk.Text):
+        box.configure(state="normal")
+        box.delete("1.0", tk.END)
+        box.insert(tk.END, text)
+        box.configure(state="disabled")
 
     def select_file(self):
         path = filedialog.askopenfilename(
@@ -213,24 +251,32 @@ class AmazonUI:
             messagebox.showerror("输入错误", "超时时间必须是整数（秒）。")
             return
 
+        try:
+            concurrency = int(self.concurrency_var.get())
+            if concurrency < 1:
+                raise ValueError
+        except ValueError:
+            messagebox.showerror("输入错误", "并发数必须是大于等于1的整数。")
+            return
+
         self.run_button.state(["disabled"])
         self.batch_button.state(["disabled"])
         self.save_button.state(["disabled"])
-        self.status_var.set(f"批量运行中（共 {len(pairs)} 条）...")
+        self.status_var_batch.set(f"批量运行中（共 {len(pairs)} 条）...")
         self.progress.configure(value=0, maximum=len(pairs))
-        self._write_result("批量任务启动...")
+        self._write_result("批量任务启动...", self.batch_result_box)
 
         thread = threading.Thread(
-            target=self._batch_worker, args=(pairs, timeout), daemon=True
+            target=self._batch_worker, args=(pairs, timeout, concurrency), daemon=True
         )
         thread.start()
 
-    def _batch_worker(self, pairs, timeout: int):
+    def _batch_worker(self, pairs, timeout: int, concurrency: int):
         def progress_cb(done, total):
             self.root.after(0, self.update_progress, done, total)
 
         try:
-            results = trio.run(run_batch_lookup, pairs, timeout, progress_cb)
+            results = trio.run(run_batch_lookup, pairs, timeout, concurrency, progress_cb)
             formatted_lines = [format_batch_result(email, password, result) for email, password, result in results]
             formatted = "\n\n".join(formatted_lines)
             self.root.after(0, self._on_batch_result, results, formatted)
@@ -239,12 +285,12 @@ class AmazonUI:
 
     def update_progress(self, done: int, total: int):
         self.progress.configure(value=done, maximum=total)
-        self.status_var.set(f"已处理 {done}/{total}")
+        self.status_var_batch.set(f"已处理 {done}/{total}")
 
     def _on_batch_result(self, results, text: str):
         self.last_batch_results = results
-        self._write_result(text)
-        self.status_var.set("批量完成")
+        self._write_result(text, self.batch_result_box)
+        self.status_var_batch.set("批量完成")
         self.run_button.state(["!disabled"])
         self.batch_button.state(["!disabled"])
         if results:
